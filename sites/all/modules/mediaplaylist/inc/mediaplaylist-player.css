@@ -1,0 +1,15 @@
+#mediaplaylist-wrapper {
+}
+
+#mediaplaylist-playlist li, .mediaplaylist-playlist-placeholder {
+  line-height: 1.2em;
+  cursor: move;
+}
+
+.mediaplaylist-playlist-placeholder {
+  ackground-color: yellow;
+}
+
+#mediaplaylist-player .loading {
+  opacity: 50%;
+}

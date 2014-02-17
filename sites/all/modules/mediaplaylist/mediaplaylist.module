@@ -1,0 +1,286 @@
+<?php
+/**
+ * @file
+ * Adds playlist functionality to the media module.
+ */
+
+/**
+ * Implements hook_menu().
+ */
+function mediaplaylist_menu() {
+  // This is the minimum information you can provide for a menu item.
+  $items['mediaplaylist/popup'] = array(
+    'title' => 'Media Player',
+    'page callback' => 'mediaplaylist_popup',
+    'access arguments' => array('access content'),
+    'type' => MENU_CALLBACK,
+  );
+  $items['admin/config/mediaplaylist'] = array(
+    'title' => 'Media Playlist',
+    'description' => 'Admin settings for the media playlist',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('mediaplaylist_settings'),
+    'access arguments' => array('administer site configuration'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+
+  return $items;
+}
+
+
+/**
+ * Implements hook_theme().
+ */
+function mediaplaylist_theme() {
+  return array(
+    'mediaplaylist_popup' => array(
+      'render element' => 'page',
+      'template' => 'mediaplaylist-popup',
+    ),
+    'mediaplaylist' => array(
+      'variables' => array('loader' => ''),
+      'template' => 'mediaplaylist',
+    ),
+  );
+}
+
+/**
+ * Implements hook_library().
+ */
+function mediaplaylist_library() {
+  $module_path = drupal_get_path('module', 'mediaplaylist') . '/inc';
+
+  $libraries['json'] = array(
+    'title' => 'Media Playlist: JSON',
+    'website' => 'http://www.JSON.org/js.html',
+    'version' => '2.0',
+    'js' => array(
+      $module_path . '/json2.js' => array(),
+    ),
+  );
+
+  $libraries['common'] = array(
+    'title' => 'Media Playlist: Common',
+    'website' => '',
+    'version' => '1.2',
+    'js' => array(
+      $module_path . '/mediaplaylist-common.js' => array(),
+    ),
+    array('system', 'cookie'),
+  );
+  $libraries['parent'] = array(
+    'title' => 'Media Playlist: Parent',
+    'website' => '',
+    'version' => '1.2',
+    'js' => array(
+      $module_path . '/mediaplaylist-parent.js' => array(),
+    ),
+    'dependencies' => array(
+      array('system', 'cookie'),
+      array('mediaplaylist', 'json'),
+      array('mediaplaylist', 'common'),
+    ),
+  );
+  // Player child.
+  $libraries['player'] = array(
+    'title' => 'Media Playlist: Player',
+    'website' => '',
+    'version' => '1.2',
+    'js' => array(
+      $module_path . '/mediaplaylist-player.js' => array(),
+    ),
+    'css' => array(
+      $module_path . '/mediaplaylist-player.css' => array(),
+    ),
+    'dependencies' => array(
+      array('system', 'drupal.ajax'),
+      array('system', 'cookie'),
+      array('system', 'ui'),
+      array('system', 'ui.sortable'),
+      array('mediaplaylist', 'json'),
+      array('mediaplaylist', 'common'),
+      array('jplayer', 'jplayer'),
+    ),
+  );
+  // Player popup.
+  $libraries['popup'] = array(
+    'title' => 'Media Playlist: Popup Window',
+    'website' => '',
+    'version' => '1.2',
+    'js' => array(
+      $module_path . '/mediaplaylist-popup.js' => array(),
+    ),
+    'dependencies' => array(
+      array('mediaplaylist', 'common'),
+    ),
+  );
+
+  return $libraries;
+}
+
+/**
+ * Implements hook_node_view().
+ */
+function mediaplaylist_node_view($node, $view_mode) {
+  drupal_add_library('mediaplaylist', 'parent');
+}
+
+/**
+ * Implements hook_entity_info_alter().
+ */
+function mediaplaylist_entity_info_alter(&$info) {
+  // Add the 'Media Playlist' view mode for nodes.
+  $info['node']['view modes'] += array(
+    'mediaplaylist' => array(
+      'label' => t('Media Playlist'),
+      'custom settings' => TRUE,
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_info().
+ */
+function mediaplaylist_field_formatter_info() {
+  return array(
+    'mediaplaylist_links' => array(
+      'label' => t('Media Playlist Links'),
+      'field types' => array('file'),
+      'description' => t('Display link to play an audio file in the Media Playlist player.'),
+    ),
+  );
+}
+
+/**
+ * Implements hook_field_formatter_view().
+ */
+function mediaplaylist_field_formatter_view($obj_type, $object, $field, $instance, $langcode, $items, $display) {
+  $element = array();
+  switch ($display['type']) {
+    case 'mediaplaylist_links':
+      drupal_add_library('mediaplaylist', 'parent');
+      foreach ($items as $delta => $item) {
+
+        // Add the needed info to the javascript settings.
+        $id = 'mediaplaylist-link-queue-' . $object->nid . '-' . $instance['field_name'] . '-' . $delta;
+        drupal_add_js(array('mediaplaylist' => array('playlinks' => array($id => array('nid' => $object->nid, 'field' => $instance['field_name'])))), array('type' => 'setting'));
+
+        // Genrate a fallback link to the file itself.
+        $file = (object) $item;
+        $url = file_create_url($file->uri);
+
+        $output = theme(
+          'links',
+          array(
+              'links' => array(
+                  array(
+                    'title' => t('Play'),
+                    'href' => $url,
+                    'attributes' => array(
+                      'class' => array('mediaplaylist-link-queue'),
+                      'title' => $object->title,
+                      'id' => $id,
+                    ),
+                  ),
+               ),
+              'attributes' => array('class' => array('mediaplaylist-links')))
+            );
+
+        $element[$delta] = array(
+          '#markup' => $output,
+        );
+      }
+      break;
+  }
+
+  return $element;
+}
+
+/**
+ * Admin settings callback.
+ */
+function mediaplaylist_settings($form, &$form_state) {
+  $form = array();
+
+  return system_settings_form($form);
+}
+
+
+/**
+ * Ajax callback for loading node information.
+ */
+function mediaplaylist_player_ajax_callback($form, $form_state) {
+  $nid = $form_state['values']['nid'];
+  $output = t('You must select an something to play.');
+  if ($node = node_load($nid)) {
+    if (node_access('view', $node)) {
+      $output = drupal_render(node_view($node, 'mediaplaylist'));
+    }
+  }
+  $commands = array();
+  $commands[] = ajax_command_html('#mediaplaylist-player', $output);
+  return array('#type' => 'ajax', '#commands' => $commands);
+}
+
+/**
+ * Render the player popup.
+ */
+function mediaplaylist_popup() {
+  drupal_add_library('system', 'ajax');
+  drupal_add_library('mediaplaylist', 'player');
+  drupal_add_library('mediaplaylist', 'popup');
+
+  $loader = drupal_render(drupal_get_form('mediaplaylist_ajax_reload_form'));
+
+  $contents = array();
+  $contents['player']       = array('#children' => theme('mediaplaylist', array('loader' => $loader)));
+
+  drupal_set_page_content($contents);
+  $page = element_info('page');
+  $page['#theme'] = 'mediaplaylist_popup';
+  $page['#show_messages'] = FALSE;
+  return $page;
+}
+
+/**
+ * Reload the form.
+ */
+function mediaplaylist_ajax_reload_form($form, &$form_state) {
+  $form = array();
+  $form['nid'] = array(
+    '#title' => t("Node ID"),
+    '#type' => 'hidden',
+    '#attributes' => array('id' => 'edit-nid'),
+    '#ajax' => array(
+      'callback' => 'mediaplaylist_player_ajax_callback',
+      'event' => 'change',
+    ),
+  );
+  return $form;
+}
+
+/**
+ * Preprocesses template variables for mediaplaylist_popup.tpl.php
+ *
+ * @see mediaplaylist-popup.tpl.php
+ */
+function template_preprocess_mediaplaylist_popup(&$variables) {
+  // Move some variables to the top level for themer convenience 
+  // and template cleanliness.
+  $variables['show_messages'] = $variables['page']['#show_messages'];
+
+  unset($variables['page']['page_top']);
+
+  // Set up layout variable.
+  $variables['layout'] = 'none';
+
+  $variables['base_path']         = base_path();
+  $variables['front_page']        = url();
+  $variables['feed_icons']        = drupal_get_feeds();
+  $variables['language']          = $GLOBALS['language'];
+  $variables['language']->dir     = $GLOBALS['language']->direction ? 'rtl' : 'ltr';
+  $variables['logo']              = theme_get_setting('logo');
+  $variables['site_name']         = (theme_get_setting('toggle_name') ? filter_xss_admin(variable_get('site_name', 'Drupal')) : '');
+  $variables['site_slogan']       = (theme_get_setting('toggle_slogan') ? filter_xss_admin(variable_get('site_slogan', '')) : '');
+  $variables['tabs']              = menu_local_tabs();
+}
