@@ -7,8 +7,13 @@ base theme = 'omega'
 version = '1.x'
 
 stylesheets[all][] = 'css/global.css'
+stylesheets[all][] = 'css/camera.css'
 
-sctipts[] = 'js/jquery.js'
+scripts[] = 'js/jquery.js'
+scripts[] = 'js/jquery.easing.1.3.js'
+scripts[] = 'js/jquery.mobile.customized.min.js'
+scripts[] = 'js/camera.js'
+scripts[] = 'js/camera.min.js'
 sctipts[] = 'js/global.js'
 
 regions[page_top] = 'Page Top'
