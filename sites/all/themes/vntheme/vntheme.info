@@ -8,6 +8,9 @@ version = '1.x'
 
 stylesheets[all][] = 'css/global.css'
 
+sctipts[] = 'js/jquery.js'
+sctipts[] = 'js/global.js'
+
 regions[page_top] = 'Page Top'
 regions[page_bottom] = 'Page Bottom'
 regions[content] = 'Content'
