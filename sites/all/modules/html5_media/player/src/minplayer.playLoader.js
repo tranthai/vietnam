@@ -19,8 +19,14 @@ minplayer.playLoader = function(context, options) {
   // Define the flags that control the big play button.
   this.bigPlay = new minplayer.flags();
 
+  // Define the flags the control the preview.
+  this.previewFlag = new minplayer.flags();
+
   /** The preview image. */
   this.preview = null;
+
+  /** If the playLoader is enabled. */
+  this.enabled = true;
 
   // Derive from display
   minplayer.display.call(this, 'playLoader', context, options);
@@ -40,11 +46,29 @@ minplayer.playLoader.prototype.construct = function() {
   // Call the media display constructor.
   minplayer.display.prototype.construct.call(this);
 
+  // Set the plugin name within the options.
+  this.options.pluginName = 'playLoader';
+
+  // Get the media plugin.
+  this.initialize();
+
+  // We are now ready.
+  this.ready();
+};
+
+/**
+ * Initialize the playLoader.
+ */
+minplayer.playLoader.prototype.initialize = function() {
+
   // Get the media plugin.
   this.get('media', function(media) {
 
     // Only bind if this player does not have its own play loader.
-    if (!media.hasPlayLoader()) {
+    if (!media.hasPlayLoader(this.options.preview)) {
+
+      // Enable the playLoader.
+      this.enabled = true;
 
       // Get the poster image.
       if (!this.options.preview) {
@@ -59,8 +83,9 @@ minplayer.playLoader.prototype.construct = function() {
 
       // Trigger a play event when someone clicks on the controller.
       if (this.elements.bigPlay) {
-        this.elements.bigPlay.unbind().bind('click', function(event) {
+        minplayer.click(this.elements.bigPlay.unbind(), function(event) {
           event.preventDefault();
+          minplayer.showAll();
           jQuery(this).hide();
           media.play();
         });
@@ -71,9 +96,7 @@ minplayer.playLoader.prototype.construct = function() {
         return function(event) {
           playLoader.busy.setFlag('media', true);
           playLoader.bigPlay.setFlag('media', true);
-          if (playLoader.preview) {
-            playLoader.elements.preview.show();
-          }
+          playLoader.previewFlag.setFlag('media', true);
           playLoader.checkVisibility();
         };
       })(this));
@@ -93,8 +116,8 @@ minplayer.playLoader.prototype.construct = function() {
         return function(event) {
           playLoader.busy.setFlag('media', false);
           playLoader.bigPlay.setFlag('media', false);
-          if (playLoader.preview) {
-            playLoader.elements.preview.hide();
+          if (media.mediaFile.type !== 'audio') {
+            playLoader.previewFlag.setFlag('media', false);
           }
           playLoader.checkVisibility();
         };
@@ -108,29 +131,27 @@ minplayer.playLoader.prototype.construct = function() {
     }
     else {
 
-      // Hide the busy cursor.
-      if (this.elements.busy) {
-        this.elements.busy.unbind().hide();
-      }
-
-      // Hide the big play button.
-      if (this.elements.bigPlay) {
-        this.elements.bigPlay.unbind().hide();
-      }
-
       // Hide the display.
-      this.display.unbind().hide();
+      this.enabled = false;
+      this.hide(this.elements.busy);
+      this.hide(this.elements.bigPlay);
+      this.hide(this.elements.preview);
+      this.hide();
     }
   });
-
-  // We are now ready.
-  this.ready();
 };
 
 /**
  * Loads the preview image.
+ *
+ * @return {boolean} Returns true if an image was loaded, false otherwise.
  */
 minplayer.playLoader.prototype.loadPreview = function() {
+
+  // Ignore if disabled.
+  if (!this.enabled) {
+    return;
+  }
 
   // If the preview element exists.
   if (this.elements.preview) {
@@ -146,6 +167,7 @@ minplayer.playLoader.prototype.loadPreview = function() {
 
       // Create the image.
       this.preview.load(this.options.preview);
+      return true;
     }
     else {
 
@@ -153,6 +175,8 @@ minplayer.playLoader.prototype.loadPreview = function() {
       this.elements.preview.hide();
     }
   }
+
+  return false;
 };
 
 /**
@@ -160,6 +184,11 @@ minplayer.playLoader.prototype.loadPreview = function() {
  * button.
  */
 minplayer.playLoader.prototype.checkVisibility = function() {
+
+  // Ignore if disabled.
+  if (!this.enabled) {
+    return;
+  }
 
   // Hide or show the busy cursor based on the flags.
   if (this.busy.flag) {
@@ -177,13 +206,20 @@ minplayer.playLoader.prototype.checkVisibility = function() {
     this.elements.bigPlay.hide();
   }
 
+  if (this.previewFlag.flag) {
+    this.elements.preview.show();
+  }
+  else {
+    this.elements.preview.hide();
+  }
+
   // Show the control either flag is set.
-  if (this.bigPlay.flag || this.busy.flag) {
+  if (this.bigPlay.flag || this.busy.flag || this.previewFlag.flag) {
     this.display.show();
   }
 
   // Hide the whole control if both flags are 0.
-  if (!this.bigPlay.flag && !this.busy.flag) {
+  if (!this.bigPlay.flag && !this.busy.flag && !this.previewFlag.flag) {
     this.display.hide();
   }
 };

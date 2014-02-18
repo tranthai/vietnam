@@ -26,14 +26,28 @@ minplayer.players.minplayer.prototype = new minplayer.players.flash();
 minplayer.players.minplayer.prototype.constructor = minplayer.players.minplayer;
 
 /**
+ * @see minplayer.plugin.construct
+ * @this minplayer.players.minplayer
+ */
+minplayer.players.minplayer.prototype.construct = function() {
+
+  // Call the players.flash constructor.
+  minplayer.players.flash.prototype.construct.call(this);
+
+  // Set the plugin name within the options.
+  this.options.pluginName = 'minplayer';
+};
+
+/**
  * Called when the Flash player is ready.
  *
  * @param {string} id The media player ID.
  */
 window.onFlashPlayerReady = function(id) {
   var media = minplayer.get(id, 'media');
-  if (media) {
-    media.onReady();
+  var i = media.length;
+  while (i--) {
+    media[i].onReady();
   }
 };
 
@@ -45,8 +59,9 @@ window.onFlashPlayerReady = function(id) {
  */
 window.onFlashPlayerUpdate = function(id, eventType) {
   var media = minplayer.get(id, 'media');
-  if (media) {
-    media.onMediaUpdate(eventType);
+  var i = media.length;
+  while (i--) {
+    media[i].onMediaUpdate(eventType);
   }
 };
 
@@ -56,15 +71,19 @@ window.onFlashPlayerUpdate = function(id, eventType) {
  * @param {string} debug The debug string.
  */
 window.onFlashPlayerDebug = function(debug) {
-  minplayer.console.log(debug);
+  if (console && console.log) {
+    console.log(debug);
+  }
 };
 
 /**
  * @see minplayer.players.base#getPriority
+ * @param {object} file A {@link minplayer.file} object.
  * @return {number} The priority of this media player.
  */
-minplayer.players.minplayer.getPriority = function() {
-  return 1;
+minplayer.players.minplayer.getPriority = function(file) {
+  // Force this player if the stream is set.
+  return file.stream ? 100 : 1;
 };
 
 /**
@@ -72,28 +91,18 @@ minplayer.players.minplayer.getPriority = function() {
  * @return {boolean} If this player can play this media type.
  */
 minplayer.players.minplayer.canPlay = function(file) {
-  switch (file.mimetype) {
-    case 'video/mp4':
-    case 'video/x-mp4':
-    case 'video/m4v':
-    case 'video/x-m4v':
-    case 'video/x-webm':
-    case 'video/webm':
-    case 'application/octet-stream':
-    case 'video/quicktime':
-    case 'video/3gpp2':
-    case 'video/3gpp':
-    case 'application/x-shockwave-flash':
-    case 'audio/mpeg':
-    case 'audio/mp4':
-    case 'audio/aac':
-    case 'audio/vnd.wave':
-    case 'audio/x-ms-wma':
-      return true;
 
-    default:
-      return false;
+  // If this has a stream, then the minplayer must play it.
+  if (file.stream) {
+    return true;
   }
+
+  var isWEBM = jQuery.inArray(file.mimetype, [
+    'video/x-webm',
+    'video/webm',
+    'application/octet-stream'
+  ]) >= 0;
+  return !isWEBM && (file.type == 'video' || file.type == 'audio');
 };
 
 /**
@@ -115,14 +124,16 @@ minplayer.players.minplayer.prototype.create = function() {
     'debug': this.options.debug,
     'config': 'nocontrols',
     'file': this.mediaFile.path,
-    'autostart': this.options.autoplay
+    'stream': this.mediaFile.stream,
+    'autostart': this.options.autoplay,
+    'autoload': this.options.autoload
   };
 
   // Return a flash media player object.
-  return minplayer.players.flash.getFlash({
+  return this.getFlash({
     swf: this.options.swfplayer,
     id: this.options.id + '_player',
-    width: this.options.width,
+    width: '100%',
     height: '100%',
     flashvars: flashVars,
     wmode: this.options.wmode
@@ -140,9 +151,12 @@ minplayer.players.minplayer.prototype.onMediaUpdate = function(eventType) {
       this.onLoaded();
       break;
     case 'mediaPlaying':
-      this.onPlaying();
+      if (this.minplayerloaded) {
+        this.onPlaying();
+      }
       break;
     case 'mediaPaused':
+      this.minplayerloaded = true;
       this.onPaused();
       break;
     case 'mediaComplete':
@@ -152,63 +166,89 @@ minplayer.players.minplayer.prototype.onMediaUpdate = function(eventType) {
 };
 
 /**
+ * Resets all variables.
+ */
+minplayer.players.minplayer.prototype.clear = function() {
+  minplayer.players.flash.prototype.clear.call(this);
+  this.minplayerloaded = this.options.autoplay;
+};
+
+/**
  * @see minplayer.players.base#load
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.minplayer.prototype.load = function(file) {
-  minplayer.players.flash.prototype.load.call(this, file);
-  if (file && this.isReady()) {
+  if (minplayer.players.flash.prototype.load.call(this, file)) {
     this.player.loadMedia(file.path, file.stream);
+    return true;
   }
+
+  return false;
 };
 
 /**
  * @see minplayer.players.base#play
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.minplayer.prototype.play = function() {
-  minplayer.players.flash.prototype.play.call(this);
-  if (this.isReady()) {
+  if (minplayer.players.flash.prototype.play.call(this)) {
     this.player.playMedia();
+    return true;
   }
+
+  return false;
 };
 
 /**
  * @see minplayer.players.base#pause
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.minplayer.prototype.pause = function() {
-  minplayer.players.flash.prototype.pause.call(this);
-  if (this.isReady()) {
+  if (minplayer.players.flash.prototype.pause.call(this)) {
     this.player.pauseMedia();
+    return true;
   }
+
+  return false;
 };
 
 /**
  * @see minplayer.players.base#stop
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.minplayer.prototype.stop = function() {
-  minplayer.players.flash.prototype.stop.call(this);
-  if (this.isReady()) {
+  if (minplayer.players.flash.prototype.stop.call(this)) {
     this.player.stopMedia();
+    return true;
   }
+
+  return false;
 };
 
 /**
  * @see minplayer.players.base#seek
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.minplayer.prototype.seek = function(pos) {
-  minplayer.players.flash.prototype.seek.call(this, pos);
-  if (this.isReady()) {
+  if (minplayer.players.flash.prototype.seek.call(this, pos)) {
     this.player.seekMedia(pos);
+    return true;
   }
+
+  return false;
 };
 
 /**
  * @see minplayer.players.base#setVolume
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.minplayer.prototype.setVolume = function(vol) {
-  minplayer.players.flash.prototype.setVolume.call(this, vol);
-  if (this.isReady()) {
+  if (minplayer.players.flash.prototype.setVolume.call(this, vol)) {
     this.player.setVolume(vol);
+    return true;
   }
+
+  return false;
 };
 
 /**

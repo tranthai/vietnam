@@ -40,9 +40,10 @@ minplayer.players.base.prototype.getElements = function() {
 /**
  * Get the priority of this media player.
  *
+ * @param {object} file A {@link minplayer.file} object.
  * @return {number} The priority of this media player.
  */
-minplayer.players.base.getPriority = function() {
+minplayer.players.base.getPriority = function(file) {
   return 0;
 };
 
@@ -75,36 +76,37 @@ minplayer.players.base.prototype.construct = function() {
   // Call the media display constructor.
   minplayer.display.prototype.construct.call(this);
 
-  // Clear the media player.
-  this.clear();
+  // Set the plugin name within the options.
+  this.options.pluginName = 'basePlayer';
 
   /** The currently loaded media file. */
   this.mediaFile = this.options.file;
 
+  // Make sure we always autoplay on streams.
+  this.options.autoplay = this.options.autoplay || this.mediaFile.stream;
+
+  // Clear the media player.
+  this.clear();
+
   // Get the player display object.
   if (!this.playerFound()) {
 
-    // Remove the media element if found
-    if (this.elements.media) {
-      this.elements.media.remove();
-    }
-
-    // Create a new media player element.
-    this.elements.media = jQuery(this.create());
-    this.display.html(this.elements.media);
+    // Add the new player.
+    this.addPlayer();
   }
 
   // Get the player object...
   this.player = this.getPlayer();
 
-  // Set the focus of the element based on if they click in or outside of it.
-  jQuery(document).bind('click', (function(player) {
-    return function(event) {
-      if (jQuery(event.target).closest('#' + player.options.id).length == 0) {
-        player.hasFocus = false;
+  // Toggle playing if they click.
+  minplayer.click(this.display, (function(player) {
+    return function() {
+      minplayer.showAll();
+      if (player.playing) {
+        player.pause();
       }
       else {
-        player.hasFocus = true;
+        player.play();
       }
     };
   })(this));
@@ -142,6 +144,21 @@ minplayer.players.base.prototype.construct = function() {
       }
     };
   })(this));
+};
+
+/**
+ * Adds the media player.
+ */
+minplayer.players.base.prototype.addPlayer = function() {
+
+  // Remove the media element if found
+  if (this.elements.media) {
+    this.elements.media.remove();
+  }
+
+  // Create a new media player element.
+  this.elements.media = jQuery(this.create());
+  this.display.html(this.elements.media);
 };
 
 /**
@@ -346,6 +363,10 @@ minplayer.players.base.prototype.onPaused = function() {
  * Should be called when the media is complete.
  */
 minplayer.players.base.prototype.onComplete = function() {
+  if (this.playing) {
+    this.onPaused();
+  }
+
   // Stop the intervals.
   this.playing = false;
   this.loading = false;
@@ -396,9 +417,19 @@ minplayer.players.base.prototype.isReady = function() {
 /**
  * Determines if the player should show the playloader.
  *
+ * @param {string} preview The preview image.
  * @return {bool} If this player implements its own playLoader.
  */
-minplayer.players.base.prototype.hasPlayLoader = function() {
+minplayer.players.base.prototype.hasPlayLoader = function(preview) {
+  return false;
+};
+
+/**
+ * Determines if the player should show the controller.
+ *
+ * @return {bool} If this player implements its own controller.
+ */
+minplayer.players.base.prototype.hasController = function() {
   return false;
 };
 
@@ -434,37 +465,47 @@ minplayer.players.base.prototype.getPlayer = function() {
  * Loads a new media player.
  *
  * @param {object} file A {@link minplayer.file} object.
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.base.prototype.load = function(file) {
 
   // Store the media file for future lookup.
   var isString = (typeof this.mediaFile == 'string');
   var path = isString ? this.mediaFile : this.mediaFile.path;
-  if (file && (file.path != path)) {
+  if (file && this.isReady() && (file.path != path)) {
     this.reset();
     this.mediaFile = file;
+    return true;
   }
+
+  return false;
 };
 
 /**
  * Play the loaded media file.
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.base.prototype.play = function() {
+  return this.isReady();
 };
 
 /**
  * Pause the loaded media file.
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.base.prototype.pause = function() {
+  return this.isReady();
 };
 
 /**
  * Stop the loaded media file.
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.base.prototype.stop = function() {
   this.playing = false;
   this.loading = false;
   this.hasFocus = false;
+  return this.isReady();
 };
 
 /**
@@ -487,10 +528,10 @@ minplayer.players.base.prototype.seekRelative = function(pos) {
           // Get the position.
           var seekPos = 0;
           if ((pos > -1) && (pos < 1)) {
-            seekPos = (currentTime / duration) + parseFloat(pos);
+            seekPos = ((currentTime / duration) + parseFloat(pos)) * duration;
           }
           else {
-            seekPos = (currentTime + parseFloat(pos)) / duration;
+            seekPos = (currentTime + parseFloat(pos));
           }
 
           // Set the seek value.
@@ -505,8 +546,25 @@ minplayer.players.base.prototype.seekRelative = function(pos) {
  * Seek the loaded media.
  *
  * @param {number} pos The position to seek the minplayer. 0 to 1.
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.base.prototype.seek = function(pos) {
+  return this.isReady();
+};
+
+/**
+ * Gets a value from the player.
+ *
+ * @param {string} getter The getter method on the player.
+ * @param {function} callback The callback function.
+ */
+minplayer.players.base.prototype.getValue = function(getter, callback) {
+  if (this.isReady()) {
+    var value = this.player[getter]();
+    if ((value !== undefined) && (value !== null)) {
+      callback(value);
+    }
+  }
 };
 
 /**
@@ -531,9 +589,11 @@ minplayer.players.base.prototype.setVolumeRelative = function(vol) {
  * Set the volume of the loaded minplayer.
  *
  * @param {number} vol The volume to set the media. 0 to 1.
+ * @return {boolean} If this action was performed.
  */
 minplayer.players.base.prototype.setVolume = function(vol) {
   this.trigger('volumeupdate', vol);
+  return this.isReady();
 };
 
 /**

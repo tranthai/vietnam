@@ -42,6 +42,9 @@ minplayer.plugin = function(name, context, options, queue) {
   // Only call the constructor if we have a context.
   if (context) {
 
+    /** Say that we are active. */
+    this.active = true;
+
     /** Keep track of the context. */
     this.context = jQuery(context);
 
@@ -69,6 +72,7 @@ minplayer.plugin.prototype.construct = function() {
 minplayer.plugin.prototype.destroy = function() {
 
   // Unbind all events.
+  this.active = false;
   this.unbind();
 };
 
@@ -85,6 +89,9 @@ minplayer.plugin.prototype.create = function(name, base, context) {
 
   // Make sure we have a base object.
   base = base || 'minplayer';
+  if (!window[base][name]) {
+    base = 'minplayer';
+  }
 
   // Make sure there is a context.
   context = context || this.display;
@@ -101,8 +108,15 @@ minplayer.plugin.prototype.create = function(name, base, context) {
       plugin = plugin[this.options.template];
     }
 
-    // Create the new plugin.
-    return new plugin(context, this.options);
+    // Make sure the plugin is a function.
+    if (typeof plugin !== 'function') {
+      plugin = window['minplayer'][name];
+    }
+
+    // Make sure it is a function.
+    if (typeof plugin === 'function') {
+      return new plugin(context, this.options);
+    }
   }
 
   return null;
@@ -133,7 +147,7 @@ minplayer.plugin.prototype.ready = function() {
  * @return {boolean} TRUE if the plugin display is valid.
  */
 minplayer.plugin.prototype.isValid = function() {
-  return true;
+  return !!this.options.id && this.active;
 };
 
 /**
@@ -156,8 +170,17 @@ minplayer.plugin.prototype.addPlugin = function(name, plugin) {
       minplayer.plugins[this.options.id] = {};
     }
 
+    if (!minplayer.plugins[this.options.id][name]) {
+
+      // Add the plugins array.
+      minplayer.plugins[this.options.id][name] = [];
+    }
+
     // Add this plugin.
-    minplayer.plugins[this.options.id][name] = plugin;
+    minplayer.plugins[this.options.id][name].push(plugin);
+
+    // Now check the queue for this plugin.
+    this.checkQueue(plugin);
   }
 };
 
@@ -198,11 +221,16 @@ minplayer.plugin.prototype.get = function(plugin, callback) {
 
 /**
  * Check the queue and execute it.
+ *
+ * @param {object} plugin The plugin object to check the queue against.
  */
-minplayer.plugin.prototype.checkQueue = function() {
+minplayer.plugin.prototype.checkQueue = function(plugin) {
 
   // Initialize our variables.
   var q = null, i = 0, check = false, newqueue = [];
+
+  // Normalize the plugin variable.
+  plugin = plugin || this;
 
   // Set the lock.
   minplayer.lock = true;
@@ -210,30 +238,33 @@ minplayer.plugin.prototype.checkQueue = function() {
   // Iterate through all the queues.
   var length = minplayer.queue.length;
   for (i = 0; i < length; i++) {
+    if (minplayer.queue.hasOwnProperty(i)) {
+      // Get the queue.
+      q = minplayer.queue[i];
 
-    // Get the queue.
-    q = minplayer.queue[i];
+      // Now check to see if this queue is about us.
+      check = !q.id && !q.plugin;
+      check |= (q.plugin == plugin.name);
+      check &= (!q.id || (q.id == this.options.id));
 
-    // Now check to see if this queue is about us.
-    check = !q.id && !q.plugin;
-    check |= (q.plugin == this.name) && (!q.id || (q.id == this.options.id));
+      // If the check passes...
+      if (check) {
+        check = minplayer.bind.call(
+          q.context,
+          q.event,
+          this.options.id,
+          plugin.name,
+          q.callback,
+          true
+        );
+      }
 
-    // If the check passes...
-    if (check) {
-      check = minplayer.bind.call(
-        q.context,
-        q.event,
-        this.options.id,
-        this.name,
-        q.callback
-      );
-    }
+      // Add the queue back if it doesn't check out.
+      if (!check) {
 
-    // Add the queue back if it doesn't check out.
-    if (!check) {
-
-      // Add this back to the queue.
-      newqueue.push(q);
+        // Add this back to the queue.
+        newqueue.push(q);
+      }
     }
   }
 
@@ -252,8 +283,11 @@ minplayer.plugin.prototype.checkQueue = function() {
  * @return {object} The plugin object.
  */
 minplayer.plugin.prototype.trigger = function(type, data) {
-  data = data || {};
-  data.plugin = this;
+
+  // Don't trigger if this plugin is inactive.
+  if (!this.active) {
+    return this;
+  }
 
   // Add this to our triggered array.
   this.triggered[type] = data;
@@ -261,14 +295,18 @@ minplayer.plugin.prototype.trigger = function(type, data) {
   // Check to make sure the queue for this type exists.
   if (this.queue.hasOwnProperty(type)) {
 
-    var i = 0, queue = {};
+    var i = 0, queue = {}, queuetype = this.queue[type];
 
     // Iterate through all the callbacks in this queue.
-    for (i in this.queue[type]) {
+    for (i in queuetype) {
 
-      // Setup the event object, and call the callback.
-      queue = this.queue[type][i];
-      queue.callback({target: this, data: queue.data}, data);
+      // Check to make sure the queue index exists.
+      if (queuetype.hasOwnProperty(i)) {
+
+        // Setup the event object, and call the callback.
+        queue = queuetype[i];
+        queue.callback({target: this, data: queue.data}, data);
+      }
     }
   }
 
@@ -285,6 +323,11 @@ minplayer.plugin.prototype.trigger = function(type, data) {
  * @return {object} The plugin object.
  **/
 minplayer.plugin.prototype.bind = function(type, data, fn) {
+
+  // Only bind if active.
+  if (!this.active) {
+    return this;
+  }
 
   // Allow the data to be the callback.
   if (typeof data === 'function') {
@@ -310,7 +353,7 @@ minplayer.plugin.prototype.bind = function(type, data, fn) {
   });
 
   // Now see if this event has already been triggered.
-  if (this.triggered[type]) {
+  if (this.triggered.hasOwnProperty(type)) {
 
     // Go ahead and trigger the event.
     fn({target: this, data: data}, this.triggered[type]);
@@ -341,19 +384,24 @@ minplayer.plugin.prototype.unbind = function(type, fn) {
   // Set the lock.
   this.lock = true;
 
+  // Get the queue type.
+  var queuetype = this.queue.hasOwnProperty(type) ? this.queue[type] : null;
+
   if (!type) {
     this.queue = {};
   }
   else if (!fn) {
     this.queue[type] = [];
   }
-  else {
+  else if (queuetype) {
     // Iterate through all the callbacks and search for equal callbacks.
     var i = 0, queue = {};
-    for (i in this.queue[type]) {
-      if (this.queue[type][i].callback === fn) {
-        queue = this.queue[type].splice(1, 1);
-        delete queue;
+    for (i in queuetype) {
+      if (queuetype.hasOwnProperty(i)) {
+        if (queuetype[i].callback === fn) {
+          queue = this.queue[type].splice(i, 1);
+          delete queue;
+        }
       }
     }
   }
@@ -403,10 +451,11 @@ minplayer.addQueue = function(context, event, id, plugin, callback) {
  * @param {string} id The player ID.
  * @param {string} plugin The name of the plugin.
  * @param {function} callback Called when the event occurs.
+ * @param {boolean} fromCheck If this is from a checkqueue.
  * @return {boolean} If the bind was successful.
  * @this The object in context who called this method.
  */
-minplayer.bind = function(event, id, plugin, callback) {
+minplayer.bind = function(event, id, plugin, callback, fromCheck) {
 
   // If no callback exists, then just return false.
   if (!callback) {
@@ -414,23 +463,66 @@ minplayer.bind = function(event, id, plugin, callback) {
   }
 
   // Get the plugins.
-  var inst = minplayer.plugins;
+  var plugins = minplayer.plugins;
 
-  // See if this plugin exists.
-  if (inst[id][plugin]) {
+  // Determine the selected plugins.
+  var selected = [];
 
-    // If so, then bind the event to this plugin.
-    inst[id][plugin].bind(event, {context: this}, function(event, data) {
-      callback.call(event.data.context, data.plugin);
-    });
-    return true;
+  // Create a quick add.
+  var addSelected = function(id, plugin) {
+    if (plugins.hasOwnProperty(id) && plugins[id].hasOwnProperty(plugin)) {
+      var i = plugins[id][plugin].length;
+      while (i--) {
+        selected.push(plugins[id][plugin][i]);
+      }
+    }
+  };
+
+  // If they provide id && plugin
+  if (id && plugin) {
+    addSelected(id, plugin);
   }
 
-  // If not, then add it to the queue to bind later.
-  minplayer.addQueue(this, event, id, plugin, callback);
+  // If they provide no id but a plugin.
+  else if (!id && plugin) {
+    for (var id in plugins) {
+      addSelected(id, plugin);
+    }
+  }
+
+  // If they provide an id but no plugin.
+  else if (id && !plugin && plugins[id]) {
+    for (var plugin in plugins[id]) {
+      addSelected(id, plugin);
+    }
+  }
+
+  // If they provide niether an id or a plugin.
+  else if (!id && !plugin) {
+    for (var id in plugins) {
+      for (var plugin in plugins[id]) {
+        addSelected(id, plugin);
+      }
+    }
+  }
+
+  // Iterate through the selected plugins and bind.
+  var i = selected.length;
+  while (i--) {
+    selected[i].bind(event, (function(context) {
+      return function(event) {
+        callback.call(context, event.target);
+      };
+    })(this));
+  }
+
+  // Add it to the queue for post bindings...
+  if ((selected.length == 0) && !fromCheck) {
+    minplayer.addQueue(this, event, id, plugin, callback);
+  }
 
   // Return that this wasn't handled.
-  return false;
+  return (selected.length > 0);
 };
 
 /**
@@ -506,6 +598,12 @@ minplayer.get = function(id, plugin, callback) {
   // Make sure the callback is a callback.
   callback = (typeof callback === 'function') ? callback : null;
 
+  // If a callback was provided, then just go ahead and bind.
+  if (callback) {
+    minplayer.bind.call(this, 'ready', id, plugin, callback);
+    return;
+  }
+
   // Get the plugins.
   var plugins = minplayer.plugins;
 
@@ -521,38 +619,17 @@ minplayer.get = function(id, plugin, callback) {
   else if (id && plugin && !callback) {
     return plugins[id][plugin];
   }
-  // 0x111
-  else if (id && plugin && callback) {
-    minplayer.bind.call(this, 'ready', id, plugin, callback);
-  }
-  // 0x011
-  else if (!id && plugin && callback) {
-    for (var id in plugins) {
-      minplayer.bind.call(this, 'ready', id, plugin, callback);
-    }
-  }
-  // 0x101
-  else if (id && !plugin && callback) {
-    for (var plugin in plugins[id]) {
-      minplayer.bind.call(this, 'ready', id, plugin, callback);
-    }
-  }
   // 0x010
   else if (!id && plugin && !callback) {
-    var plugin_types = {};
+    var plugin_types = [];
     for (var id in plugins) {
       if (plugins.hasOwnProperty(id) && plugins[id].hasOwnProperty(plugin)) {
-        plugin_types[id] = plugins[id][plugin];
+        var i = plugins[id][plugin].length;
+        while (i--) {
+          plugin_types.push(plugins[id][plugin][i]);
+        }
       }
     }
     return plugin_types;
-  }
-  // 0x001
-  else {
-    for (var id in plugins) {
-      for (var plugin in plugins[id]) {
-        minplayer.bind.call(this, 'ready', id, plugin, callback);
-      }
-    }
   }
 };

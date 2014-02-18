@@ -15,7 +15,7 @@ function html5_media_theme() {
   $info = html5_media_get_player_info();
   foreach ($info['templates'] as $name => $info) {
     $themes['html5_player_' . $name] = array(
-      'template' => 'media_player_' . $name,
+      'template' => 'minplayer_' . $name,
       'variables' => array('params' => NULL),
       'path' => $info['path']
     );
@@ -102,7 +102,18 @@ function html5_media_html5_player_info() {
           $path . '/default/js/minplayer.default.js' => array('group' => JS_DEFAULT)
         ),
         'css' => array(
-          $path . '/default/css/media_player_default.css' => array('group' => CSS_DEFAULT)
+          $path . '/default/css/minplayer_default.css' => array('group' => CSS_DEFAULT)
+        )
+      ),
+      'jqueryui' => array(
+        'path' => $path . '/jqueryui',
+        'js' => array(
+          $path . '/jqueryui/js/minplayer.playLoader.jqueryui.js' => array('group' => JS_DEFAULT),
+          $path . '/jqueryui/js/minplayer.controller.jqueryui.js' => array('group' => JS_DEFAULT),
+          $path . '/jqueryui/js/minplayer.jqueryui.js' => array('group' => JS_DEFAULT)
+        ),
+        'css' => array(
+          $path . '/jqueryui/css/minplayer_jqueryui.css' => array('group' => CSS_DEFAULT)
         )
       )
     )
@@ -191,14 +202,11 @@ function theme_html5_player($variables) {
     // Gets the source of this media.
     if ($source = html5_media_get_source($file)) {
 
-      // Get the source attributes.
-      $source_attributes = array('src' => $source);
-
       // Add the sources to the #value of the media tag.
       $element['#value'] .= theme('html_tag', array(
         'element' => array(
           '#tag' => 'source',
-          '#attributes' => $source_attributes
+          '#attributes' => array('src' => $source)
         )
       ));
     }
@@ -207,6 +215,7 @@ function theme_html5_player($variables) {
   // Add some variables that the template needs.
   $variables['player'] = theme('html_tag', $variables);
   $variables['settings'] = $settings;
+  $variables['params'] = $settings;
 
   // Register the media player in JavaScript.
   html5_media_register_player($settings, $attributes);
@@ -414,6 +423,7 @@ function html5_media_get_attributes($settings) {
 
   // Set the ID, width and height.
   $attributes['id'] = $settings['id'] . '-player';
+  $attributes['class'] = 'minplayer-' . $settings['template'] . '-media';
   $attributes['width'] = '100%';
   $attributes['height'] = '100%';
   return $attributes;

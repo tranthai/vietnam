@@ -9,6 +9,20 @@ var minplayer = minplayer || {};
  * @param {object} file A media file object with minimal required information.
  */
 minplayer.file = function(file) {
+
+  // If there isn't a file provided, then just return null.
+  if (!file) {
+    return null;
+  }
+
+  file = (typeof file === 'string') ? {path: file} : file;
+
+  // If we already are a minplayer file, then just return this file.
+  if (file.hasOwnProperty('isMinPlayerFile')) {
+    return file;
+  }
+
+  this.isMinPlayerFile = true;
   this.duration = file.duration || 0;
   this.bytesTotal = file.bytesTotal || 0;
   this.quality = file.quality || 0;
@@ -28,10 +42,16 @@ minplayer.file = function(file) {
   }
 
   // Get the player.
-  this.player = file.player || this.getBestPlayer();
+  this.player = minplayer.player || file.player || this.getBestPlayer();
   this.priority = file.priority || this.getPriority();
   this.id = file.id || this.getId();
+  if (!this.path) {
+    this.path = this.id;
+  }
 };
+
+/** Used to force the player for all media. */
+minplayer.player = '';
 
 /**
  * Returns the best player for the job.
@@ -42,7 +62,7 @@ minplayer.file.prototype.getBestPlayer = function() {
   var bestplayer = null, bestpriority = 0;
   jQuery.each(minplayer.players, (function(file) {
     return function(name, player) {
-      var priority = player.getPriority();
+      var priority = player.getPriority(file);
       if (player.canPlay(file) && (priority > bestpriority)) {
         bestplayer = name;
         bestpriority = priority;
@@ -61,7 +81,7 @@ minplayer.file.prototype.getBestPlayer = function() {
 minplayer.file.prototype.getPriority = function() {
   var priority = 1;
   if (this.player) {
-    priority = minplayer.players[this.player].getPriority();
+    priority = minplayer.players[this.player].getPriority(this);
   }
   switch (this.mimetype) {
     case 'video/x-webm':
@@ -136,24 +156,15 @@ minplayer.file.prototype.getMimeType = function() {
  * is.
  */
 minplayer.file.prototype.getType = function() {
-  switch (this.mimetype) {
-    case 'video/mp4':
-    case 'video/webm':
-    case 'application/octet-stream':
-    case 'video/x-webm':
-    case 'video/ogg':
-    case 'video/3gpp2':
-    case 'video/3gpp':
-    case 'video/quicktime':
-      return 'video';
-    case 'audio/mp3':
-    case 'audio/mp4':
-    case 'audio/ogg':
-    case 'audio/mpeg':
-      return 'audio';
-    default:
-      return '';
+  var type = this.mimetype.match(/([^\/]+)(\/)/);
+  type = (type && (type.length > 1)) ? type[1] : '';
+  if (type == 'video' || this.mimetype == 'application/octet-stream') {
+    return 'video';
   }
+  if (type == 'audio') {
+    return 'audio';
+  }
+  return '';
 };
 
 /**

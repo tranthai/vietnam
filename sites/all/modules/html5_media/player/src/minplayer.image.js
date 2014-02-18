@@ -39,6 +39,9 @@ minplayer.image.prototype.construct = function() {
   // Call the media display constructor.
   minplayer.display.prototype.construct.call(this);
 
+  // Set the plugin name within the options.
+  this.options.pluginName = 'image';
+
   // Set the container to not show any overflow...
   this.display.css('overflow', 'hidden');
 
@@ -74,6 +77,7 @@ minplayer.image.prototype.load = function(src) {
     this.img = jQuery(document.createElement('img')).attr({src: ''}).hide();
     this.display.append(this.img);
     this.loader.src = src;
+    this.img.attr('src', src);
   });
 };
 
@@ -89,7 +93,7 @@ minplayer.image.prototype.clear = function(callback) {
       return function() {
         image.img.attr('src', '');
         image.loader.src = '';
-        $(this).remove();
+        jQuery(this).remove();
         callback.call(image);
       };
     })(this));
@@ -106,8 +110,8 @@ minplayer.image.prototype.clear = function(callback) {
  * @param {integer} height (optional) The height of the container.
  */
 minplayer.image.prototype.resize = function(width, height) {
-  width = width || this.display.width();
-  height = height || this.display.height();
+  width = width || this.display.parent().width();
+  height = height || this.display.parent().height();
   if (width && height && this.loaded) {
 
     // Get the scaled rectangle.

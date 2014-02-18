@@ -12,7 +12,7 @@ if (!jQuery.fn.minplayer) {
   jQuery.fn.minplayer = function(options) {
     return jQuery(this).each(function() {
       options = options || {};
-      options.id = options.id || $(this).attr('id') || Math.random();
+      options.id = options.id || jQuery(this).attr('id') || Math.random();
       if (!minplayer.plugins[options.id]) {
         options.template = options.template || 'default';
         if (minplayer[options.template]) {
@@ -59,11 +59,6 @@ minplayer.prototype = new minplayer.display();
 minplayer.prototype.constructor = minplayer;
 
 /**
- * Define a way to debug.
- */
-minplayer.console = console || {log: function(data) {}};
-
-/**
  * @see minplayer.plugin.construct
  */
 minplayer.prototype.construct = function() {
@@ -82,19 +77,27 @@ minplayer.prototype.construct = function() {
     wmode: 'transparent',
     preload: true,
     autoplay: false,
+    autoload: true,
     loop: false,
     width: '100%',
     height: '350px',
     debug: false,
     volume: 80,
-    files: [],
+    files: null,
     file: '',
     preview: '',
-    attributes: {}
+    attributes: {},
+    logo: '',
+    link: '',
+    width: '100%',
+    height: '100%'
   }, this.options);
 
   // Call the minplayer display constructor.
   minplayer.display.prototype.construct.call(this);
+
+  // Set the plugin name within the options.
+  this.options.pluginName = 'player';
 
   /** The controller for this player. */
   this.controller = this.create('controller');
@@ -102,20 +105,72 @@ minplayer.prototype.construct = function() {
   /** The play loader for this player. */
   this.playLoader = this.create('playLoader');
 
+  // Set the focus of the element based on if they click in or outside of it.
+  minplayer.click(document, (function(player) {
+    return function(event) {
+      var target = jQuery(event.target);
+      var focus = !(target.closest('#' + player.options.id).length == 0);
+      minplayer.get.call(this, player.options.id, null, function(plugin) {
+        plugin.onFocus(focus);
+      });
+    };
+  })(this));
+
+  /** Add the logo for the player. */
+  if (this.options.logo && this.elements.logo) {
+
+    var code = '';
+    if (this.options.link) {
+      code += '<a target="_blank" href="' + this.options.link + '">';
+    }
+    code += '<img src="' + this.options.logo + '" >';
+    if (this.options.link) {
+      code += '</a>';
+    }
+    this.logo = this.elements.logo.append(code);
+  }
+
   /** Variable to store the current media player. */
   this.currentPlayer = 'html5';
 
   // Add key events to the window.
   this.addKeyEvents();
 
+  // Called to add events.
+  this.addEvents();
+
   // Now load these files.
   this.load(this.getFiles());
 
-  // Add the player events.
-  this.addEvents();
-
   // The player is ready.
   this.ready();
+};
+
+/**
+ * Called when an error occurs.
+ *
+ * @param {object} plugin The plugin you wish to bind to.
+ */
+minplayer.prototype.bindTo = function(plugin) {
+  plugin.bind('error', (function(player) {
+    return function(event, data) {
+      if (player.currentPlayer == 'html5') {
+        minplayer.player = 'minplayer';
+        player.options.file.player = 'minplayer';
+        player.loadPlayer();
+      }
+      else {
+        player.showError(data);
+      }
+    };
+  })(this));
+
+  // Bind to the fullscreen event.
+  plugin.bind('fullscreen', (function(player) {
+    return function(event, data) {
+      player.resize();
+    };
+  })(this));
 };
 
 /**
@@ -124,25 +179,7 @@ minplayer.prototype.construct = function() {
 minplayer.prototype.addEvents = function() {
   minplayer.get.call(this, this.options.id, null, (function(player) {
     return function(plugin) {
-
-      // Bind to the error event.
-      plugin.bind('error', function(event, data) {
-
-        // If an error occurs within the html5 media player, then try
-        // to fall back to the flash player.
-        if (player.currentPlayer == 'html5') {
-          player.options.file.player = 'minplayer';
-          player.loadPlayer();
-        }
-        else {
-          player.error(data);
-        }
-      });
-
-      // Bind to the fullscreen event.
-      plugin.bind('fullscreen', function(event, data) {
-        player.resize();
-      });
+      player.bindTo(plugin);
     };
   })(this));
 };
@@ -152,17 +189,27 @@ minplayer.prototype.addEvents = function() {
  *
  * @param {string} error The error to display on the player.
  */
-minplayer.prototype.error = function(error) {
-  error = error || '';
-  if (this.elements.error) {
+minplayer.prototype.showError = function(error) {
+  if (typeof error !== 'object') {
+    error = error || '';
+    if (this.elements.error) {
 
-    // Set the error text.
-    this.elements.error.text(error);
-    if (error) {
-      this.elements.error.show();
-    }
-    else {
-      this.elements.error.hide();
+      // Set the error text.
+      this.elements.error.text(error);
+      if (error) {
+        // Show the error message.
+        this.elements.error.show();
+
+        // Only show this error for a time interval.
+        setTimeout((function(player) {
+          return function() {
+            player.elements.error.hide('slow');
+          };
+        })(this), 5000);
+      }
+      else {
+        this.elements.error.hide();
+      }
     }
   }
 };
@@ -191,6 +238,16 @@ minplayer.prototype.addKeyEvents = function() {
  * @return {array} All the media files for this player.
  */
 minplayer.prototype.getFiles = function() {
+
+  // If they provide the files in the options, use those first.
+  if (this.options.files) {
+    return this.options.files;
+  }
+
+  if (this.options.file) {
+    return this.options.file;
+  }
+
   var files = [];
   var mediaSrc = null;
 
@@ -214,42 +271,30 @@ minplayer.prototype.getFiles = function() {
 
 /**
  * Returns the full media player object.
+ *
  * @param {array} files An array of files to chose from.
  * @return {object} The best media file to play in the current browser.
  */
-minplayer.prototype.getMediaFile = function(files) {
+minplayer.getMediaFile = function(files) {
 
   // If there are no files then return null.
   if (!files) {
     return null;
   }
 
-  // If the file is a single string, then return the file object.
-  if (typeof files === 'string') {
-    return new minplayer.file({'path': files});
-  }
-
   // If the file is already a file object then just return.
-  if (files.path || files.id) {
+  if ((typeof files === 'string') || files.path || files.id) {
     return new minplayer.file(files);
   }
 
   // Add the files and get the best player to play.
-  var i = files.length, bestPriority = 0, mFile = null, file = null;
-  while (i--) {
-    file = files[i];
-
-    // Get the minplayer file object.
-    if (typeof file === 'string') {
-      file = new minplayer.file({'path': file});
-    }
-    else {
-      file = new minplayer.file(file);
-    }
-
-    // Determine the best file for this browser.
-    if (file.priority > bestPriority) {
-      mFile = file;
+  var bestPriority = 0, mFile = null, file = null;
+  for (var i in files) {
+    if (files.hasOwnProperty(i)) {
+      file = new minplayer.file(files[i]);
+      if (file.player && (file.priority > bestPriority)) {
+        mFile = file;
+      }
     }
   }
 
@@ -259,22 +304,23 @@ minplayer.prototype.getMediaFile = function(files) {
 
 /**
  * Loads a media player based on the current file.
+ *
+ * @return {boolean} If a new player was loaded.
  */
 minplayer.prototype.loadPlayer = function() {
 
-  // Do nothing if there isn't a file.
-  if (!this.options.file) {
-    this.error('No media found.');
-    return;
+  // Do nothing if there isn't a file or anywhere to put it.
+  if (!this.options.file || (this.elements.display.length == 0)) {
+    return false;
   }
 
+  // If no player is set, then also return false.
   if (!this.options.file.player) {
-    this.error('Cannot play media: ' + this.options.file.mimetype);
-    return;
+    return false;
   }
 
   // Reset the error.
-  this.error();
+  this.showError();
 
   // Only destroy if the current player is different than the new player.
   var player = this.options.file.player.toString();
@@ -287,7 +333,7 @@ minplayer.prototype.loadPlayer = function() {
 
     // Do nothing if we don't have a display.
     if (!this.elements.display) {
-      this.error('No media display found.');
+      this.showError('No media display found.');
       return;
     }
 
@@ -311,14 +357,22 @@ minplayer.prototype.loadPlayer = function() {
 
         // Load the media.
         media.load(player.options.file);
+        player.display.addClass('minplayer-player-' + media.mediaFile.player);
       };
     })(this));
+
+    // Return that a new player is loaded.
+    return true;
   }
   // If the media object already exists...
   else if (this.media) {
 
     // Now load the different media file.
+    this.media.options = this.options;
+    this.display.removeClass('minplayer-player-' + this.media.mediaFile.player);
     this.media.load(this.options.file);
+    this.display.addClass('minplayer-player-' + this.media.mediaFile.player);
+    return false;
   }
 };
 
@@ -334,10 +388,19 @@ minplayer.prototype.load = function(files) {
 
   // If no file was provided, then get it.
   this.options.files = files || this.options.files;
-  this.options.file = this.getMediaFile(this.options.files);
+  this.options.file = minplayer.getMediaFile(this.options.files);
 
   // Now load the player.
-  this.loadPlayer();
+  if (this.loadPlayer()) {
+
+    // Add the events since we now have a player.
+    this.bindTo(this.media);
+
+    // If the player isn't valid, then show an error.
+    if (this.options.file.mimetype && !this.options.file.player) {
+      this.showError('Cannot play media: ' + this.options.file.mimetype);
+    }
+  }
 };
 
 /**

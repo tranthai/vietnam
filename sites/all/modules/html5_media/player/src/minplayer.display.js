@@ -45,6 +45,9 @@ minplayer.display.prototype.construct = function() {
   // Call the plugin constructor.
   minplayer.plugin.prototype.construct.call(this);
 
+  // Set the plugin name within the options.
+  this.options.pluginName = 'display';
+
   // Get the display elements.
   this.elements = this.getElements();
 
@@ -72,6 +75,19 @@ minplayer.display.prototype.construct = function() {
 minplayer.display.prototype.onResize = false;
 
 /**
+ * Wrapper around hide that will always not show.
+ *
+ * @param {object} element The element you wish to hide.
+ */
+minplayer.display.prototype.hide = function(element) {
+  element = element || this.display;
+  if (element) {
+    element.forceHide = true;
+    element.unbind().hide();
+  }
+};
+
+/**
  * Gets the full screen element.
  *
  * @return {object} The display to be used for full screen support.
@@ -81,22 +97,107 @@ minplayer.display.prototype.fullScreenElement = function() {
 };
 
 /**
+ * Fix for the click function in jQuery to be cross platform.
+ *
+ * @param {object} element The element that will be clicked.
+ * @param {function} fn Called when the element is clicked.
+ * @return {object} The element that is to be clicked.
+ */
+minplayer.click = function(element, fn) {
+  var flag = false;
+  element = jQuery(element);
+  element.bind('touchstart click', function(event) {
+    if (!flag) {
+      flag = true;
+      setTimeout(function() {
+        flag = false;
+      }, 100);
+      fn.call(this, event);
+    }
+  });
+  return element;
+};
+
+/**
+ * Determines if the player is in focus or not.
+ *
+ * @param {boolean} focus If the player is in focus.
+ */
+minplayer.display.prototype.onFocus = function(focus) {
+  this.hasFocus = this.focus = focus;
+};
+
+/** Keep track of all the show hide elements. */
+minplayer.showHideElements = [];
+
+/**
+ * Show all the show hide elements.
+ */
+minplayer.showAll = function() {
+  var i = minplayer.showHideElements.length;
+  var obj = null;
+  while (i--) {
+    obj = minplayer.showHideElements[i];
+    minplayer.showThenHide(obj.element, obj.timeout, obj.callback);
+  }
+};
+
+/**
+ * Stops the whole show then hide from happening.
+ *
+ * @param {object} element The element you want the showThenHide to stop.
+ */
+minplayer.stopShowThenHide = function(element) {
+  element = jQuery(element);
+  if (element.showTimer) {
+    clearTimeout(element.showTimer);
+  }
+  element.stopShowThenHide = true;
+  element.shown = true;
+  element.show();
+};
+
+/**
  * Called if you would like for your display item to show then hide.
  *
  * @param {object} element The element you would like to hide or show.
  * @param {number} timeout The timeout to hide and show.
+ * @param {function} callback Called when something happens.
  */
-minplayer.showThenHide = function(element, timeout) {
+minplayer.showThenHide = function(element, timeout, callback) {
+
+  // If no element exists, then just return.
+  if (!element) {
+    return;
+  }
 
   // Ensure we have a timeout.
   timeout = timeout || 5000;
 
   // If this has not yet been configured.
   if (!element.showTimer) {
+    element.shown = true;
+    element.stopShowThenHide = false;
 
-    // Bind when they move the mouse.
+    // Add this to our showHideElements.
+    minplayer.showHideElements.push({
+      element: element,
+      timeout: timeout,
+      callback: callback
+    });
+
+    // Bind to a click event.
+    minplayer.click(document, function() {
+      if (!element.stopShowThenHide) {
+        minplayer.showThenHide(element, timeout, callback);
+      }
+    });
+
+    // Bind to the mousemove event.
     jQuery(document).bind('mousemove', function() {
-      minplayer.showThenHide(element, timeout);
+      if (!element.stopShowThenHide) {
+        minplayer.showThenHide(element, timeout, callback);
+      }
     });
   }
 
@@ -104,11 +205,22 @@ minplayer.showThenHide = function(element, timeout) {
   clearTimeout(element.showTimer);
 
   // Show the display.
-  element.show();
+  if (!element.shown && !element.forceHide) {
+    element.shown = true;
+    element.show();
+    if (callback) {
+      callback(true);
+    }
+  }
 
   // Set a timer to hide it after the timeout.
   element.showTimer = setTimeout(function() {
-    element.hide('slow');
+    element.hide('slow', function() {
+      element.shown = false;
+      if (callback) {
+        callback(false);
+      }
+    });
   }, timeout);
 };
 
@@ -198,15 +310,6 @@ minplayer.display.prototype.getElements = function() {
 };
 
 /**
- * Returns if this component is valid and exists within the DOM.
- *
- * @return {boolean} TRUE if the plugin display is valid.
- */
-minplayer.display.prototype.isValid = function() {
-  return (this.display.length > 0);
-};
-
-/**
  * From https://github.com/sindresorhus/screenfull.js
  */
 /*global Element:true*/
@@ -237,9 +340,11 @@ minplayer.display.prototype.isValid = function() {
       ]
     ];
     for (var i = 0, l = methodMap.length; i < l; i++) {
-      var val = methodMap[i];
-      if (val[1] in document) {
-        return val;
+      if (methodMap.hasOwnProperty(i)) {
+        var val = methodMap[i];
+        if (val[1] in document) {
+          return val;
+        }
       }
     }
   })();
